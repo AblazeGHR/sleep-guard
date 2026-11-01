@@ -124,6 +124,7 @@ class SleepGuardService : Service() {
         // 服务没在跑的时候收到「暂停 / 续播 / 我还醒着」，说明是通知或快捷方式
         // 发来的野指令，直接收摊，别留下一个没有前台通知的空服务。
         if (action != ACTION_START && !running) {
+            if (action == ACTION_STOP) guardStateReset()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -132,8 +133,8 @@ class SleepGuardService : Service() {
             ACTION_START -> {
                 ensureForeground()
                 if (GuardState.phase.value == Phase.DONE) {
-                    // 从「已完成」再开一轮：先把上一轮占着的焦点收干净
-                    report?.let { runCatching { audio.resume(it) } }
+                    // 从「已完成」再开一轮：只把焦点松开，别把上一轮的音频顶起来
+                    runCatching { audio.releaseFocus() }
                     report = null
                     guardStateReset()
                     running = false
@@ -170,10 +171,8 @@ class SleepGuardService : Service() {
         }
         anchor = null
         runCatching { audio.releaseFocus() }
-        if (GuardState.phase.value != Phase.DONE) {
-            GuardState.phase.value = Phase.IDLE
-            GuardState.remainingMs.value = 0
-        }
+        // 服务没了就守不住任何东西了，状态一律回到待机
+        guardStateReset()
         refreshTile()
         scope.cancel()
         super.onDestroy()
@@ -184,6 +183,7 @@ class SleepGuardService : Service() {
         GuardState.remainingMs.value = 0
         GuardState.totalMs.value = 0
         GuardState.pausedVia.value = null
+        GuardState.bookmarkCaptured.value = true
     }
 
     // ---------- 启动 ----------
@@ -263,14 +263,11 @@ class SleepGuardService : Service() {
         }
 
         if (r.via == AudioController.Via.NONE) {
-            // 没有活跃会话、也抢不到焦点：多半是根本没在播，直接收工
-            GuardState.phase.value = Phase.DONE
-            GuardState.remainingMs.value = 0
-            keys.stop()
-            releaseWakeLock()
-            updateNotification()
-            refreshTile()
-            toast("没找到正在播放的音频，已停止")
+            // 没有活跃会话、也抢不到焦点：多半是此刻根本没在播。
+            // 不退出，重新开一轮计时——宁可多守一会儿，也别在用户真在听的时候掉链子。
+            report = null
+            toast("没找到正在播放的音频，继续守着")
+            arm()
             return
         }
 
@@ -437,10 +434,7 @@ class SleepGuardService : Service() {
             runCatching { it.release() }
         }
         anchor = null
-        GuardState.phase.value = Phase.IDLE
-        GuardState.remainingMs.value = 0
-        GuardState.totalMs.value = 0
-        GuardState.pausedVia.value = null
+        guardStateReset()
         if (foreground) {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             foreground = false

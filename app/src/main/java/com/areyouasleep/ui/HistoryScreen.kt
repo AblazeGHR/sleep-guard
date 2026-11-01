@@ -129,7 +129,7 @@ fun HistoryScreen() {
                             modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                         )
                     }
-                    items(dayItems, key = { it.at }) { bm ->
+                    items(dayItems, key = { "${it.at}_${it.packageName}" }) { bm ->
                         BookmarkCard(bm) { AppLauncher.open(context, bm.packageName) }
                     }
                 }
