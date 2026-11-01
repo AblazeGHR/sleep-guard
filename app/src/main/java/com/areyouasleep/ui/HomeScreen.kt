@@ -57,6 +57,7 @@ private val Warn = Color(0xFFFFC078)
 @Composable
 fun HomeScreen(
     phase: Phase,
+    armedMinutes: Int,
     remainingMs: Long,
     totalMs: Long,
     nowPlaying: NowPlaying?,
@@ -103,13 +104,13 @@ fun HomeScreen(
     }
 
     val ringLabel = when (phase) {
-        Phase.IDLE -> "待机"
+        Phase.IDLE -> formatClock(armedMinutes * 60_000L)
         Phase.DONE -> "已记录"
         else -> formatClock(remainingMs)
     }
 
     val caption = when (phase) {
-        Phase.IDLE -> "开始后，长时间不动音量键就自动暂停"
+        Phase.IDLE -> "$armedMinutes 分钟内没按音量键，就替你暂停"
         Phase.ARMED -> "这段时间里按一下音量键，计时就重来"
         Phase.PAUSED -> "按音量键，把刚才的声音叫回来"
         Phase.DONE -> "音频一直停着，明早再看记录"
@@ -219,7 +220,7 @@ fun HomeScreen(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = ringLabel,
-                        fontSize = if (phase == Phase.IDLE || phase == Phase.DONE) 36.sp else 48.sp,
+                        fontSize = if (phase == Phase.DONE) 34.sp else 48.sp,
                         fontWeight = FontWeight.Light,
                         color = TextPrimary,
                         letterSpacing = 1.sp,

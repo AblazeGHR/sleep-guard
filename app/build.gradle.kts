@@ -41,6 +41,12 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+
+    lint {
+        // 自用侧载，不上 Google Play。targetSdk 刻意锁 31 对齐鸿蒙 4.x 的 Android 兼容层，
+        // 同时免掉 Android 13+ 的 POST_NOTIFICATIONS 运行时申请。
+        disable += "ExpiredTargetSdkVersion"
+    }
 }
 
 dependencies {

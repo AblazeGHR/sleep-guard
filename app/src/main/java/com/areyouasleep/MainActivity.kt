@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.areyouasleep.audio.AudioController
 import com.areyouasleep.core.GuardState
+import com.areyouasleep.data.GuardSettings
 import com.areyouasleep.data.GuardStore
 import com.areyouasleep.data.Phase
 import com.areyouasleep.service.SleepGuardService
@@ -109,6 +110,9 @@ private fun Root() {
     val bookmarks by bookmarksFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     val latestBookmark = lastBookmark ?: bookmarks.firstOrNull()
 
+    val settingsFlow = remember { GuardStore.settings(context) }
+    val settings by settingsFlow.collectAsStateWithLifecycle(initialValue = GuardSettings())
+
     LaunchedEffect(onboarded) {
         if (!onboarded) showGuide = true
     }
@@ -165,6 +169,7 @@ private fun Root() {
             when (tab) {
                 0 -> HomeScreen(
                     phase = phase,
+                    armedMinutes = settings.armedMinutes,
                     remainingMs = remaining,
                     totalMs = total,
                     nowPlaying = nowPlaying,
