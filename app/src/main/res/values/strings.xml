@@ -2,4 +2,8 @@
 <resources>
     <string name="app_name">睡了吗</string>
     <string name="nls_label">睡了吗 · 媒体控制</string>
+    <string name="shortcut_start">开始守护</string>
+    <string name="shortcut_start_long">开始睡眠守护</string>
+    <string name="shortcut_pause">立即暂停</string>
+    <string name="shortcut_pause_long">现在就把音频暂停</string>
 </resources>

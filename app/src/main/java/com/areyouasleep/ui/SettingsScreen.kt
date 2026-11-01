@@ -1,5 +1,6 @@
 package com.areyouasleep.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,7 +9,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -22,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,13 +47,17 @@ fun SettingsScreen(
     val flow = remember { GuardStore.settings(context) }
     val settings by flow.collectAsStateWithLifecycle(initialValue = GuardSettings())
 
+    fun save(change: (GuardSettings) -> GuardSettings) {
+        scope.launch { GuardStore.updateSettings(context, change) }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 22.dp),
     ) {
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
         Text("设置", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
         Text("改动立即生效，下一次计时按新参数走", fontSize = 12.sp, color = TextSecondary)
 
@@ -57,31 +65,38 @@ fun SettingsScreen(
             SliderRow(
                 title = "无操作多久算睡着",
                 value = settings.armedMinutes,
-                range = 5f..60f,
-                steps = 10,
-                onChange = { v ->
-                    scope.launch { GuardStore.updateSettings(context) { it.copy(armedMinutes = v) } }
-                },
+                range = 1f..60f,
+                steps = 58,
+                onChange = { v -> save { it.copy(armedMinutes = v) } },
             )
             SliderRow(
                 title = "暂停后多久内可续播",
                 value = settings.resumeMinutes,
                 range = 1f..15f,
                 steps = 13,
-                onChange = { v ->
-                    scope.launch { GuardStore.updateSettings(context) { it.copy(resumeMinutes = v) } }
-                },
+                onChange = { v -> save { it.copy(resumeMinutes = v) } },
+            )
+            Text(
+                "想快速验证？把上面调成 1 分钟，点开始，一分钟后什么都不按就行。",
+                fontSize = 11.sp,
+                color = TextSecondary,
+                lineHeight = 16.sp,
             )
         }
 
-        SectionCard("触发") {
+        SectionCard("触发与反馈") {
             SwitchRow(
                 title = "耳机断开也算睡着",
                 subtitle = "摘下耳机、蓝牙耳机没电断开，比音量键更早给出信号",
                 checked = settings.earphoneTrigger,
-                onCheckedChange = { v ->
-                    scope.launch { GuardStore.updateSettings(context) { it.copy(earphoneTrigger = v) } }
-                },
+                onCheckedChange = { v -> save { it.copy(earphoneTrigger = v) } },
+            )
+            Spacer(Modifier.height(6.dp))
+            SwitchRow(
+                title = "暂停 / 续播时轻轻震一下",
+                subtitle = "给个手感确认，不用睁眼看屏幕",
+                checked = settings.hapticFeedback,
+                onCheckedChange = { v -> save { it.copy(hapticFeedback = v) } },
             )
         }
 
@@ -99,6 +114,22 @@ fun SettingsScreen(
                 granted = batteryIgnored,
                 actionLabel = "去开启",
                 onAction = { Permissions.requestIgnoreBattery(context) },
+            )
+        }
+
+        SectionCard("快捷入口") {
+            Text(
+                "下拉通知栏 → 编辑快捷开关 → 把「睡了吗」拖到面板上。之后一下开、一下关。",
+                fontSize = 12.sp,
+                color = TextSecondary,
+                lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "长按桌面图标也能直接「开始守护」或「立即暂停」。",
+                fontSize = 12.sp,
+                color = TextSecondary,
+                lineHeight = 18.sp,
             )
         }
 
@@ -121,18 +152,28 @@ fun SettingsScreen(
 
         SectionCard("音量键检测的盲区") {
             BulletText("普通应用拿不到全局按键事件，这里靠的是「音量值发生变化」这个间接信号。")
-            BulletText("音量已经在 0 或最大时，再按不会产生变化，会被漏判。建议开始前把媒体音量留在 40%–70%。")
+            BulletText("音量已经在 0 或最大时，再按不会产生变化，会被漏判。开始前把媒体音量留在 40%–70%。")
             BulletText("熄屏时如果音量键转去调铃声，也能识别——所有音量流都在监听范围内。")
         }
 
-        Spacer(Modifier.height(26.dp))
-        Text(
-            "v0.1.0 · com.areyouasleep",
-            fontSize = 11.sp,
-            color = TextSecondary,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Spacer(Modifier.height(40.dp))
+        Spacer(Modifier.height(24.dp))
+
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(Surface1)
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("睡了吗", fontSize = 13.sp, color = TextPrimary)
+                Text("v0.1.0 · com.areyouasleep", fontSize = 11.sp, color = TextSecondary)
+            }
+            Text("本地运行", fontSize = 11.sp, color = AccentDim)
+        }
+
+        Spacer(Modifier.height(38.dp))
     }
 }
 
@@ -176,6 +217,7 @@ private fun SwitchRow(
             Text(title, fontSize = 14.sp, color = TextPrimary)
             Text(subtitle, fontSize = 11.sp, color = TextSecondary, lineHeight = 16.sp)
         }
+        Spacer(Modifier.size(8.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

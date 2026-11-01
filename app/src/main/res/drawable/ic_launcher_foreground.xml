@@ -5,20 +5,20 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- 月牙：两个圆用 evenOdd 相减 -->
+    <!-- 月牙：外圆 r=26，内圆 r=17 偏移(6,-3)，2.24+17 < 26 保证不留碎片 -->
     <path
         android:fillColor="#FF9FE870"
         android:fillType="evenOdd"
-        android:pathData="M54,26 a28,28 0 1,0 0,56 a28,28 0 1,0 0,-56 z M66,34 a24,24 0 1,1 0,48 a24,24 0 1,1 0,-48 z" />
+        android:pathData="M54,54 m-26,0 a26,26 0 1,0 52,0 a26,26 0 1,0 -52,0 M60,51 m-17,0 a17,17 0 1,0 34,0 a17,17 0 1,0 -34,0" />
 
-    <!-- 三颗星，示意“睡着了” -->
+    <!-- 三颗星 -->
     <path
         android:fillColor="#FF6EE7B7"
-        android:pathData="M70,30 m-2.6,0 a2.6,2.6 0 1,0 5.2,0 a2.6,2.6 0 1,0 -5.2,0 z" />
+        android:pathData="M78,30 m-2.8,0 a2.8,2.8 0 1,0 5.6,0 a2.8,2.8 0 1,0 -5.6,0 z" />
     <path
         android:fillColor="#FF6EE7B7"
-        android:pathData="M79,44 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0 z" />
+        android:pathData="M84,42 m-1.8,0 a1.8,1.8 0 1,0 3.6,0 a1.8,1.8 0 1,0 -3.6,0 z" />
     <path
         android:fillColor="#FF6EE7B7"
-        android:pathData="M74,56 m-1.2,0 a1.2,1.2 0 1,0 2.4,0 a1.2,1.2 0 1,0 -2.4,0 z" />
+        android:pathData="M80,52 m-1.3,0 a1.3,1.3 0 1,0 2.6,0 a1.3,1.3 0 1,0 -2.6,0 z" />
 </vector>

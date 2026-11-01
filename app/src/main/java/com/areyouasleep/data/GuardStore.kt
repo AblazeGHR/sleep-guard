@@ -26,6 +26,8 @@ object GuardStore {
     private val K_ARMED = intPreferencesKey("armed_minutes")
     private val K_RESUME = intPreferencesKey("resume_minutes")
     private val K_EARPHONE = booleanPreferencesKey("earphone_trigger")
+    private val K_HAPTIC = booleanPreferencesKey("haptic_feedback")
+    private val K_ONBOARDED = booleanPreferencesKey("onboarded")
     private val K_BOOKMARKS = stringPreferencesKey("bookmarks")
     private val K_SNAPSHOT = stringPreferencesKey("last_snapshot")
 
@@ -38,6 +40,7 @@ object GuardStore {
             armedMinutes = p[K_ARMED] ?: 15,
             resumeMinutes = p[K_RESUME] ?: 5,
             earphoneTrigger = p[K_EARPHONE] ?: true,
+            hapticFeedback = p[K_HAPTIC] ?: true,
         )
     }
 
@@ -49,7 +52,14 @@ object GuardStore {
             p[K_ARMED] = next.armedMinutes.coerceIn(1, 120)
             p[K_RESUME] = next.resumeMinutes.coerceIn(1, 30)
             p[K_EARPHONE] = next.earphoneTrigger
+            p[K_HAPTIC] = next.hapticFeedback
         }
+    }
+
+    fun onboarded(context: Context): Flow<Boolean> = context.ds.safe().map { it[K_ONBOARDED] ?: false }
+
+    suspend fun setOnboarded(context: Context) {
+        context.ds.edit { it[K_ONBOARDED] = true }
     }
 
     fun bookmarks(context: Context): Flow<List<Bookmark>> = context.ds.safe().map { p ->

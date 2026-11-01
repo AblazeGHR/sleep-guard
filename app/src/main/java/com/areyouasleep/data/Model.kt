@@ -5,6 +5,7 @@ data class GuardSettings(
     val armedMinutes: Int = 15,
     val resumeMinutes: Int = 5,
     val earphoneTrigger: Boolean = true,
+    val hapticFeedback: Boolean = true,
 )
 
 enum class Phase {

@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -13,11 +14,16 @@ import android.content.pm.ServiceInfo
 import android.media.AudioManager
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
+import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.service.quicksettings.TileService
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -33,6 +39,7 @@ import com.areyouasleep.data.GuardSettings
 import com.areyouasleep.data.GuardStore
 import com.areyouasleep.data.Phase
 import com.areyouasleep.key.VolumeKeyWatcher
+import com.areyouasleep.tile.GuardTileService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -49,6 +56,7 @@ class SleepGuardService : Service() {
         const val ACTION_STOP = "com.areyouasleep.action.STOP"
         const val ACTION_PAUSE_NOW = "com.areyouasleep.action.PAUSE_NOW"
         const val ACTION_RESUME_NOW = "com.areyouasleep.action.RESUME_NOW"
+        const val ACTION_I_AM_AWAKE = "com.areyouasleep.action.I_AM_AWAKE"
 
         private const val CHANNEL_ID = "guard"
         private const val NOTIF_ID = 4101
@@ -61,25 +69,25 @@ class SleepGuardService : Service() {
         }
 
         fun stop(context: Context) {
-            runCatching {
-                context.startService(
-                    Intent(context, SleepGuardService::class.java).setAction(ACTION_STOP)
-                )
-            }
+            send(context, ACTION_STOP)
         }
 
         fun pauseNow(context: Context) {
-            runCatching {
-                context.startService(
-                    Intent(context, SleepGuardService::class.java).setAction(ACTION_PAUSE_NOW)
-                )
-            }
+            send(context, ACTION_PAUSE_NOW)
         }
 
         fun resumeNow(context: Context) {
+            send(context, ACTION_RESUME_NOW)
+        }
+
+        fun iAmAwake(context: Context) {
+            send(context, ACTION_I_AM_AWAKE)
+        }
+
+        private fun send(context: Context, action: String) {
             runCatching {
                 context.startService(
-                    Intent(context, SleepGuardService::class.java).setAction(ACTION_RESUME_NOW)
+                    Intent(context, SleepGuardService::class.java).setAction(action)
                 )
             }
         }
@@ -104,14 +112,23 @@ class SleepGuardService : Service() {
     override fun onCreate() {
         super.onCreate()
         audio = AudioController(this)
-        keys = VolumeKeyWatcher(this) { onVolumeKey() }
+        keys = VolumeKeyWatcher(this) { onUserAwakeSignal() }
         createChannel()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action ?: ACTION_START) {
+        val action = intent?.action ?: ACTION_START
+
+        // 服务没在跑的时候收到「暂停 / 续播 / 我还醒着」，说明是通知或快捷方式
+        // 发来的野指令，直接收摊，别留下一个没有前台通知的空服务。
+        if (action != ACTION_START && !running) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        when (action) {
             ACTION_START -> {
                 ensureForeground()
                 if (!running) begin()
@@ -125,6 +142,8 @@ class SleepGuardService : Service() {
             ACTION_PAUSE_NOW -> if (GuardState.phase.value == Phase.ARMED) triggerSleep()
 
             ACTION_RESUME_NOW -> if (GuardState.phase.value == Phase.PAUSED) resumeFromPause()
+
+            ACTION_I_AM_AWAKE -> onUserAwakeSignal()
         }
         return START_STICKY
     }
@@ -146,6 +165,7 @@ class SleepGuardService : Service() {
             GuardState.phase.value = Phase.IDLE
             GuardState.remainingMs.value = 0
         }
+        refreshTile()
         scope.cancel()
         super.onDestroy()
     }
@@ -163,6 +183,13 @@ class SleepGuardService : Service() {
             arm()
             startSnapshotLoop()
             startTicker()
+
+            // 设置页改完参数立刻生效；如果正在计时且时长变了，按新时长重来
+            GuardStore.settings(this@SleepGuardService).collect { fresh ->
+                val durationChanged = fresh.armedMinutes != settings.armedMinutes
+                settings = fresh
+                if (durationChanged && GuardState.phase.value == Phase.ARMED) arm()
+            }
         }
     }
 
@@ -176,6 +203,7 @@ class SleepGuardService : Service() {
         GuardState.totalMs.value = total
         GuardState.remainingMs.value = total
         updateNotification()
+        refreshTile()
 
         timerJob = scope.launch {
             val deadline = SystemClock.elapsedRealtime() + total
@@ -183,7 +211,7 @@ class SleepGuardService : Service() {
                 val left = deadline - SystemClock.elapsedRealtime()
                 GuardState.remainingMs.value = left.coerceAtLeast(0L)
                 if (left <= 0L) break
-                // 250ms 一次：Doze 里 delay 会漂，但用 elapsedRealtime 做基准算，误差不会累积
+                // 250ms 一次：Doze 里 delay 会漂，但用 elapsedRealtime 当基准，误差不会累积
                 delay(250)
             }
             if (isActive) triggerSleep()
@@ -217,12 +245,13 @@ class SleepGuardService : Service() {
         }
 
         if (r.via == AudioController.Via.NONE) {
-            // 没有任何活跃会话、也抢不到焦点：多半是根本没在播，直接收工
+            // 没有活跃会话、也抢不到焦点：多半是根本没在播，直接收工
             GuardState.phase.value = Phase.DONE
             GuardState.remainingMs.value = 0
             keys.stop()
             releaseWakeLock()
             updateNotification()
+            refreshTile()
             toast("没找到正在播放的音频，已停止")
             return
         }
@@ -233,6 +262,8 @@ class SleepGuardService : Service() {
         GuardState.remainingMs.value = window
         startWindow(window)
         updateNotification()
+        refreshTile()
+        vibrate()
 
         val how = if (r.via == AudioController.Via.SESSION) "已暂停播放" else "已抢占音频焦点"
         toast("$how，${settings.resumeMinutes} 分钟内按音量键续播")
@@ -254,8 +285,8 @@ class SleepGuardService : Service() {
 
     /**
      * 恢复窗口过了。这里故意不 abandon 焦点、也不 stopSelf：
-     * 进程一退，焦点就释放，对方的播放器会自己 resume —— 那就等于白暂停了。
-     * 保持前台服务（已无 wakelock，耗电可忽略）让音频一直停着，等用户早上自己"结束"。
+     * 进程一退，焦点就释放，对方的播放器会自己 resume —— 等于白暂停。
+     * 保持前台服务（已释放 wakelock，耗电可忽略）让音频一直停着，等用户早上自己结束。
      */
     private fun expireWindow() {
         GuardState.phase.value = Phase.DONE
@@ -263,6 +294,7 @@ class SleepGuardService : Service() {
         keys.stop()
         releaseWakeLock()
         updateNotification()
+        refreshTile()
     }
 
     private fun resumeFromPause() {
@@ -276,12 +308,14 @@ class SleepGuardService : Service() {
             scope.launch { GuardStore.markResumed(this@SleepGuardService, bm.at) }
         }
         arm()
+        vibrate()
         toast("已续播")
     }
 
-    private fun onVolumeKey() {
+    /** 音量键、通知栏按钮、耳机断连都汇到这里 */
+    private fun onUserAwakeSignal() {
         when (GuardState.phase.value) {
-            Phase.ARMED -> arm()          // 还醒着，计时重来
+            Phase.ARMED -> arm()
             Phase.PAUSED -> resumeFromPause()
             else -> Unit
         }
@@ -393,6 +427,7 @@ class SleepGuardService : Service() {
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             foreground = false
         }
+        refreshTile()
         stopSelf()
     }
 
@@ -443,7 +478,8 @@ class SleepGuardService : Service() {
             Phase.ARMED -> np?.let { "${it.title} · ${formatPosition(it.positionMs)}" }
                 ?: "按一下音量键表示你还醒着"
             Phase.PAUSED, Phase.DONE -> bm?.let {
-                "《${it.title}》${formatPosition(it.positionMs)}" + if (it.subtitle.isBlank()) "" else " · ${it.subtitle}"
+                "《${it.title}》${formatPosition(it.positionMs)}" +
+                    if (it.subtitle.isBlank()) "" else " · ${it.subtitle}"
             } ?: "没有记录到播放内容"
             Phase.IDLE -> "点按开始"
         }
@@ -457,9 +493,18 @@ class SleepGuardService : Service() {
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setContentIntent(contentIntent())
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+
+        val total = GuardState.totalMs.value
+        if ((phase == Phase.ARMED || phase == Phase.PAUSED) && total > 0L) {
+            val pct = ((GuardState.remainingMs.value.toFloat() / total) * 100f)
+                .toInt().coerceIn(0, 100)
+            builder.setProgress(100, pct, false)
+        }
 
         when (phase) {
             Phase.ARMED -> {
+                builder.addAction(0, "我还醒着", serviceIntent(ACTION_I_AM_AWAKE, 10))
                 builder.addAction(0, "立即暂停", serviceIntent(ACTION_PAUSE_NOW, 11))
                 builder.addAction(0, "结束", serviceIntent(ACTION_STOP, 12))
             }
@@ -494,6 +539,29 @@ class SleepGuardService : Service() {
         )
 
     // ---------- 杂项 ----------
+
+    private fun refreshTile() {
+        runCatching {
+            TileService.requestListeningState(
+                this,
+                ComponentName(this, GuardTileService::class.java),
+            )
+        }
+    }
+
+    private fun vibrate() {
+        if (!settings.hapticFeedback) return
+        runCatching {
+            val effect = VibrationEffect.createOneShot(45L, VibrationEffect.DEFAULT_AMPLITUDE)
+            val v: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                getSystemService(VibratorManager::class.java)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Vibrator::class.java)
+            }
+            v?.vibrate(effect)
+        }
+    }
 
     private fun acquireWakeLock() {
         if (wakeLock?.isHeld == true) return
