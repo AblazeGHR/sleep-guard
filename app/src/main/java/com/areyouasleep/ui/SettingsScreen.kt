@@ -1,0 +1,197 @@
+package com.areyouasleep.ui
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.areyouasleep.data.GuardSettings
+import com.areyouasleep.data.GuardStore
+import com.areyouasleep.util.Permissions
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+
+@Composable
+fun SettingsScreen(
+    nlsEnabled: Boolean,
+    batteryIgnored: Boolean,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val flow = remember { GuardStore.settings(context) }
+    val settings by flow.collectAsStateWithLifecycle(initialValue = GuardSettings())
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp),
+    ) {
+        Spacer(Modifier.height(20.dp))
+        Text("设置", fontSize = 26.sp, fontWeight = FontWeight.SemiBold)
+        Text("改动立即生效，下一次计时按新参数走", fontSize = 12.sp, color = TextSecondary)
+
+        SectionCard("计时") {
+            SliderRow(
+                title = "无操作多久算睡着",
+                value = settings.armedMinutes,
+                range = 5f..60f,
+                steps = 10,
+                onChange = { v ->
+                    scope.launch { GuardStore.updateSettings(context) { it.copy(armedMinutes = v) } }
+                },
+            )
+            SliderRow(
+                title = "暂停后多久内可续播",
+                value = settings.resumeMinutes,
+                range = 1f..15f,
+                steps = 13,
+                onChange = { v ->
+                    scope.launch { GuardStore.updateSettings(context) { it.copy(resumeMinutes = v) } }
+                },
+            )
+        }
+
+        SectionCard("触发") {
+            SwitchRow(
+                title = "耳机断开也算睡着",
+                subtitle = "摘下耳机、蓝牙耳机没电断开，比音量键更早给出信号",
+                checked = settings.earphoneTrigger,
+                onCheckedChange = { v ->
+                    scope.launch { GuardStore.updateSettings(context) { it.copy(earphoneTrigger = v) } }
+                },
+            )
+        }
+
+        SectionCard("权限") {
+            PermissionRow(
+                title = "通知使用权",
+                subtitle = "读取其他 App 的播放会话，才能精准暂停并记住进度",
+                granted = nlsEnabled,
+                actionLabel = "去开启",
+                onAction = { Permissions.openNlsSettings(context) },
+            )
+            PermissionRow(
+                title = "忽略电池优化",
+                subtitle = "熄屏后不被系统冻结，计时才不会走丢",
+                granted = batteryIgnored,
+                actionLabel = "去开启",
+                onAction = { Permissions.requestIgnoreBattery(context) },
+            )
+        }
+
+        SectionCard("鸿蒙保活") {
+            Text(
+                "鸿蒙 4.x 对后台管得比较严，睡前建议把这三件事做了：",
+                fontSize = 12.sp,
+                color = TextSecondary,
+                lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(10.dp))
+            StepText("1", "设置 → 应用和服务 → 应用启动管理 → 睡了吗 → 关闭「自动管理」，把自启动、关联启动、后台活动都勾上")
+            StepText("2", "最近任务卡片里把「睡了吗」下拉加锁")
+            StepText("3", "设置 → 电池 → 更多电池设置 → 打开「休眠时始终保持网络连接」")
+            TextButton(
+                onClick = { Permissions.openAppDetail(context) },
+                modifier = Modifier.padding(top = 2.dp),
+            ) { Text("打开应用详情页", fontSize = 13.sp) }
+        }
+
+        SectionCard("音量键检测的盲区") {
+            BulletText("普通应用拿不到全局按键事件，这里靠的是「音量值发生变化」这个间接信号。")
+            BulletText("音量已经在 0 或最大时，再按不会产生变化，会被漏判。建议开始前把媒体音量留在 40%–70%。")
+            BulletText("熄屏时如果音量键转去调铃声，也能识别——所有音量流都在监听范围内。")
+        }
+
+        Spacer(Modifier.height(26.dp))
+        Text(
+            "v0.1.0 · com.areyouasleep",
+            fontSize = 11.sp,
+            color = TextSecondary,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(40.dp))
+    }
+}
+
+@Composable
+private fun SliderRow(
+    title: String,
+    value: Int,
+    range: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onChange: (Int) -> Unit,
+) {
+    var local by remember(value) { mutableFloatStateOf(value.toFloat()) }
+    Column(Modifier.padding(vertical = 2.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(title, fontSize = 14.sp, color = TextPrimary)
+            Text("${local.roundToInt()} 分钟", fontSize = 13.sp, color = Accent)
+        }
+        Slider(
+            value = local,
+            onValueChange = { local = it },
+            onValueChangeFinished = { onChange(local.roundToInt()) },
+            valueRange = range,
+            steps = steps,
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+}
+
+@Composable
+private fun SwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontSize = 14.sp, color = TextPrimary)
+            Text(subtitle, fontSize = 11.sp, color = TextSecondary, lineHeight = 16.sp)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun StepText(index: String, text: String) {
+    Row(Modifier.padding(vertical = 3.dp)) {
+        Text("$index.", fontSize = 12.sp, color = Accent, modifier = Modifier.padding(end = 6.dp))
+        Text(text, fontSize = 12.sp, color = TextSecondary, lineHeight = 18.sp)
+    }
+}
+
+@Composable
+private fun BulletText(text: String) {
+    Row(Modifier.padding(vertical = 3.dp)) {
+        Text("·", fontSize = 12.sp, color = Accent, modifier = Modifier.padding(end = 8.dp))
+        Text(text, fontSize = 12.sp, color = TextSecondary, lineHeight = 18.sp)
+    }
+}
