@@ -2,6 +2,7 @@ package com.areyouasleep
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,8 +32,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.areyouasleep.audio.AudioController
 import com.areyouasleep.core.GuardState
 import com.areyouasleep.data.GuardStore
+import com.areyouasleep.data.Phase
 import com.areyouasleep.service.SleepGuardService
 import com.areyouasleep.ui.Bg
 import com.areyouasleep.ui.HistoryScreen
@@ -42,6 +45,7 @@ import com.areyouasleep.ui.SettingsScreen
 import com.areyouasleep.ui.SleepTheme
 import com.areyouasleep.ui.Surface1
 import com.areyouasleep.util.Permissions
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -91,6 +95,7 @@ private fun Root() {
     val nowPlaying by GuardState.nowPlaying.collectAsStateWithLifecycle()
     val lastBookmark by GuardState.lastBookmark.collectAsStateWithLifecycle()
     val pausedVia by GuardState.pausedVia.collectAsStateWithLifecycle()
+    val bookmarkCaptured by GuardState.bookmarkCaptured.collectAsStateWithLifecycle()
     val nls by GuardState.nlsEnabled.collectAsStateWithLifecycle()
     val battery by GuardState.batteryIgnored.collectAsStateWithLifecycle()
 
@@ -106,6 +111,16 @@ private fun Root() {
 
     LaunchedEffect(onboarded) {
         if (!onboarded) showGuide = true
+    }
+
+    // 没启动守护时也想知道"我是不是正在播"，这样主页能直接说清当前状态
+    LaunchedEffect(phase, nls) {
+        if (phase != Phase.IDLE || !nls) return@LaunchedEffect
+        val probe = AudioController(context.applicationContext)
+        while (true) {
+            GuardState.nowPlaying.value = probe.snapshot()
+            delay(3000L)
+        }
     }
 
     if (showGuide) {
@@ -155,8 +170,18 @@ private fun Root() {
                     nowPlaying = nowPlaying,
                     lastBookmark = latestBookmark,
                     pausedVia = pausedVia,
+                    bookmarkCaptured = bookmarkCaptured,
                     nlsEnabled = nls,
-                    onStart = { SleepGuardService.start(context) },
+                    onStart = {
+                        SleepGuardService.start(context)
+                        if (!nls) {
+                            Toast.makeText(
+                                context,
+                                "没开通知使用权，暂停可能不生效，也记不住进度",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    },
                     onStop = { SleepGuardService.stop(context) },
                     onPauseNow = { SleepGuardService.pauseNow(context) },
                     onResumeNow = { SleepGuardService.resumeNow(context) },

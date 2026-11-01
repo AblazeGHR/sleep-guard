@@ -131,11 +131,19 @@ class SleepGuardService : Service() {
         when (action) {
             ACTION_START -> {
                 ensureForeground()
+                if (GuardState.phase.value == Phase.DONE) {
+                    // 从「已完成」再开一轮：先把上一轮占着的焦点收干净
+                    report?.let { runCatching { audio.resume(it) } }
+                    report = null
+                    guardStateReset()
+                    running = false
+                }
                 if (!running) begin()
             }
 
             ACTION_STOP -> {
-                shutdown(resumeAudio = true)
+                // 不主动续播：结束了就让它安静停着，用户自己去听书 App 点播放
+                shutdown(resumeAudio = false)
                 return START_NOT_STICKY
             }
 
@@ -161,6 +169,7 @@ class SleepGuardService : Service() {
             runCatching { it.release() }
         }
         anchor = null
+        runCatching { audio.releaseFocus() }
         if (GuardState.phase.value != Phase.DONE) {
             GuardState.phase.value = Phase.IDLE
             GuardState.remainingMs.value = 0
@@ -170,6 +179,13 @@ class SleepGuardService : Service() {
         super.onDestroy()
     }
 
+    private fun guardStateReset() {
+        GuardState.phase.value = Phase.IDLE
+        GuardState.remainingMs.value = 0
+        GuardState.totalMs.value = 0
+        GuardState.pausedVia.value = null
+    }
+
     // ---------- 启动 ----------
 
     private fun begin() {
@@ -177,6 +193,7 @@ class SleepGuardService : Service() {
         scope.launch {
             settings = GuardStore.currentSettings(this@SleepGuardService)
             acquireWakeLock()
+            keys.stop()
             keys.start()
             registerNoisy()
             anchorSession()
@@ -228,6 +245,7 @@ class SleepGuardService : Service() {
         val r = audio.pauseAll()
         report = r
         GuardState.pausedVia.value = r.via.name
+        GuardState.bookmarkCaptured.value = r.targets.isNotEmpty()
 
         r.targets.firstOrNull()?.let { t ->
             val bookmark = Bookmark(

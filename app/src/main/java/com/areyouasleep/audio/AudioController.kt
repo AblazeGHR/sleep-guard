@@ -219,4 +219,7 @@ class AudioController(private val context: Context) {
         focusRequest = null
         focusListener = null
     }
+
+    /** 服务销毁时兜底：不释放焦点的话，进程还活着就会一直压着别人的播放 */
+    fun releaseFocus() = abandonFocus()
 }

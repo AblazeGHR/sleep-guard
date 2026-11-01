@@ -62,6 +62,7 @@ fun HomeScreen(
     nowPlaying: NowPlaying?,
     lastBookmark: Bookmark?,
     pausedVia: String?,
+    bookmarkCaptured: Boolean,
     nlsEnabled: Boolean,
     onStart: () -> Unit,
     onStop: () -> Unit,
@@ -258,15 +259,19 @@ fun HomeScreen(
                 PermissionBanner(onOpenNls = onOpenNls)
             }
 
-            if (phase == Phase.ARMED && nowPlaying != null) {
+            if ((phase == Phase.ARMED || phase == Phase.IDLE) && nowPlaying != null) {
                 Spacer(Modifier.height(22.dp))
                 PlayingCard(nowPlaying)
             }
 
-            if (lastBookmark != null && (phase == Phase.PAUSED || phase == Phase.DONE)) {
+            if (phase == Phase.PAUSED || phase == Phase.DONE) {
                 Spacer(Modifier.height(18.dp))
-                BookmarkCard(lastBookmark, pausedVia) {
-                    AppLauncher.open(context, lastBookmark.packageName)
+                if (bookmarkCaptured && lastBookmark != null) {
+                    BookmarkCard(lastBookmark, pausedVia) {
+                        AppLauncher.open(context, lastBookmark.packageName)
+                    }
+                } else {
+                    NoBookmarkHint()
                 }
             }
 
@@ -399,6 +404,26 @@ private fun PlayingCard(np: NowPlaying) {
                 color = AccentDim,
             )
         }
+    }
+}
+
+@Composable
+private fun NoBookmarkHint() {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(Surface1)
+            .padding(16.dp),
+    ) {
+        Text("这次没记下进度", fontSize = 14.sp, color = TextPrimary, fontWeight = FontWeight.Medium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "音频是靠抢占焦点暂停的，拿不到播放位置。下次先把通知使用权开了，就能记到第几章。",
+            fontSize = 11.sp,
+            color = TextSecondary,
+            lineHeight = 17.sp,
+        )
     }
 }
 
