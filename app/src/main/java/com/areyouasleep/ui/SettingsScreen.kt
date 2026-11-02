@@ -168,7 +168,7 @@ fun SettingsScreen(
         ) {
             Column(Modifier.weight(1f)) {
                 Text("睡了吗", fontSize = 13.sp, color = TextPrimary)
-                Text("v0.1.0 · com.areyouasleep", fontSize = 11.sp, color = TextSecondary)
+                Text("v0.1.1 · com.areyouasleep", fontSize = 11.sp, color = TextSecondary)
             }
             Text("本地运行", fontSize = 11.sp, color = AccentDim)
         }

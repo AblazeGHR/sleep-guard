@@ -10,12 +10,15 @@ android {
 
     defaultConfig {
         applicationId = "com.areyouasleep"
-        minSdk = 29
+        // Android 8.0 是这条技术路线的天然下限：
+        // AudioFocusRequest、NotificationChannel、VibrationEffect 都是 API 26 才有，
+        // 再往下降到 23 就得为这三样各写一套兼容分支，收益（Android 6/7 存量）不值这个成本。
+        minSdk = 26
         // 目标设备是鸿蒙 4.3 的 Android 兼容层（API 31），targetSdk 对齐可省掉
         // 高版本行为变更（edge-to-edge、FGS 类型强制、通知权限）带来的一堆分支。
         targetSdk = 31
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
     }
 
     buildTypes {

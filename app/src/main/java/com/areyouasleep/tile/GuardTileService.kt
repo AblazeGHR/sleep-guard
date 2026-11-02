@@ -1,5 +1,6 @@
 package com.areyouasleep.tile
 
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.service.quicksettings.Tile
@@ -36,11 +37,14 @@ class GuardTileService : TileService() {
             else -> Tile.STATE_INACTIVE
         }
         tile.label = "睡了吗"
-        tile.subtitle = when (phase) {
-            Phase.ARMED -> "守护中"
-            Phase.PAUSED -> "已暂停"
-            Phase.DONE -> "已记录"
-            Phase.IDLE -> "未启动"
+        // subtitle 是 API 29 才有的，8.x / 9 上就只显示应用名
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            tile.subtitle = when (phase) {
+                Phase.ARMED -> "守护中"
+                Phase.PAUSED -> "已暂停"
+                Phase.DONE -> "已记录"
+                Phase.IDLE -> "未启动"
+            }
         }
         tile.updateTile()
     }
