@@ -38,7 +38,7 @@ import com.areyouasleep.data.Bookmark
 import com.areyouasleep.data.GuardSettings
 import com.areyouasleep.data.GuardStore
 import com.areyouasleep.data.Phase
-import com.areyouasleep.key.VolumeKeyWatcher
+import com.areyouasleep.key.AwakeSignalWatcher
 import com.areyouasleep.tile.GuardTileService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -95,7 +95,7 @@ class SleepGuardService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var audio: AudioController
-    private lateinit var keys: VolumeKeyWatcher
+    private lateinit var watcher: AwakeSignalWatcher
 
     private var settings = GuardSettings()
     private var report: AudioController.Report? = null
@@ -112,7 +112,7 @@ class SleepGuardService : Service() {
     override fun onCreate() {
         super.onCreate()
         audio = AudioController(this)
-        keys = VolumeKeyWatcher(this) { onUserAwakeSignal() }
+        watcher = AwakeSignalWatcher(this) { signal -> onAwakeSignal(signal) }
         createChannel()
     }
 
@@ -162,7 +162,7 @@ class SleepGuardService : Service() {
         windowJob?.cancel()
         snapshotJob?.cancel()
         tickerJob?.cancel()
-        keys.stop()
+        watcher.stop()
         unregisterNoisy()
         releaseWakeLock()
         anchor?.let {
@@ -193,8 +193,8 @@ class SleepGuardService : Service() {
         scope.launch {
             settings = GuardStore.currentSettings(this@SleepGuardService)
             acquireWakeLock()
-            keys.stop()
-            keys.start()
+            watcher.stop()
+            watcher.start()
             registerNoisy()
             anchorSession()
             arm()
@@ -240,7 +240,7 @@ class SleepGuardService : Service() {
     private fun triggerSleep() {
         if (GuardState.phase.value != Phase.ARMED) return
         timerJob?.cancel()
-        keys.suppress(1500)
+        watcher.suppress(1500)
 
         val r = audio.pauseAll()
         report = r
@@ -306,7 +306,7 @@ class SleepGuardService : Service() {
     private fun expireWindow() {
         GuardState.phase.value = Phase.DONE
         GuardState.remainingMs.value = 0
-        keys.stop()
+        watcher.stop()
         releaseWakeLock()
         updateNotification()
         refreshTile()
@@ -315,7 +315,7 @@ class SleepGuardService : Service() {
     private fun resumeFromPause() {
         if (GuardState.phase.value != Phase.PAUSED) return
         windowJob?.cancel()
-        keys.suppress(1500)
+        watcher.suppress(1500)
         report?.let { audio.resume(it) }
         report = null
         GuardState.phase.value = Phase.ARMED
@@ -332,6 +332,19 @@ class SleepGuardService : Service() {
         when (GuardState.phase.value) {
             Phase.ARMED -> arm()
             Phase.PAUSED -> resumeFromPause()
+            else -> Unit
+        }
+    }
+
+    /**
+     * 音量键和电源键的区别在这里：
+     * 计时中（ARMED）两者都算「还醒着」，重置计时；
+     * 已暂停（PAUSED）只认音量键——半夜醒来按一下电源键看时间，不该把有声书放出来。
+     */
+    private fun onAwakeSignal(signal: AwakeSignalWatcher.Signal) {
+        when (GuardState.phase.value) {
+            Phase.ARMED -> arm()
+            Phase.PAUSED -> if (signal == AwakeSignalWatcher.Signal.VOLUME) resumeFromPause()
             else -> Unit
         }
     }
@@ -422,7 +435,7 @@ class SleepGuardService : Service() {
         windowJob?.cancel()
         snapshotJob?.cancel()
         tickerJob?.cancel()
-        keys.stop()
+        watcher.stop()
         unregisterNoisy()
         if (resumeAudio) {
             report?.let { runCatching { audio.resume(it) } }

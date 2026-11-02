@@ -310,7 +310,7 @@ fun HomeScreen(
 
             Spacer(Modifier.height(24.dp))
             Text(
-                "音量键就是你的「我还醒着」按钮",
+                "音量键或电源键，都算你还醒着",
                 fontSize = 11.sp,
                 color = TextSecondary.copy(alpha = 0.7f),
             )

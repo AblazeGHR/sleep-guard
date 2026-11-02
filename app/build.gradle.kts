@@ -17,8 +17,8 @@ android {
         // 目标设备是鸿蒙 4.3 的 Android 兼容层（API 31），targetSdk 对齐可省掉
         // 高版本行为变更（edge-to-edge、FGS 类型强制、通知权限）带来的一堆分支。
         targetSdk = 31
-        versionCode = 2
-        versionName = "0.1.1"
+        versionCode = 3
+        versionName = "0.1.2"
     }
 
     buildTypes {

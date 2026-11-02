@@ -98,6 +98,14 @@ fun SettingsScreen(
                 checked = settings.hapticFeedback,
                 onCheckedChange = { v -> save { it.copy(hapticFeedback = v) } },
             )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "计时中：按音量键、按电源键灭屏、解锁屏幕都算「还醒着」，会把计时清零。" +
+                    "暂停后只认音量键——半夜醒来按电源键看时间，不会把有声书放出来。",
+                fontSize = 11.sp,
+                color = TextSecondary,
+                lineHeight = 17.sp,
+            )
         }
 
         SectionCard("权限") {
@@ -168,7 +176,7 @@ fun SettingsScreen(
         ) {
             Column(Modifier.weight(1f)) {
                 Text("睡了吗", fontSize = 13.sp, color = TextPrimary)
-                Text("v0.1.1 · com.areyouasleep", fontSize = 11.sp, color = TextSecondary)
+                Text("v0.1.2 · com.areyouasleep", fontSize = 11.sp, color = TextSecondary)
             }
             Text("本地运行", fontSize = 11.sp, color = AccentDim)
         }
