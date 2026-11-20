@@ -192,6 +192,11 @@ private fun Root() {
                     onResumeNow = { SleepGuardService.resumeNow(context) },
                     onOpenNls = { Permissions.openNlsSettings(context) },
                     onOpenHistory = { tab = 1 },
+                    onMinutesChange = { minutes ->
+                        scope.launch {
+                            GuardStore.updateSettings(context) { it.copy(armedMinutes = minutes) }
+                        }
+                    },
                 )
 
                 1 -> HistoryScreen()

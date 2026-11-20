@@ -10,6 +10,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +29,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +45,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +61,11 @@ import com.areyouasleep.data.Bookmark
 import com.areyouasleep.data.NowPlaying
 import com.areyouasleep.data.Phase
 import com.areyouasleep.util.AppLauncher
+import kotlin.math.PI
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 
 private val Warn = Color(0xFFFFC078)
 
@@ -71,12 +86,24 @@ fun HomeScreen(
     onResumeNow: () -> Unit,
     onOpenNls: () -> Unit,
     onOpenHistory: () -> Unit,
+    onMinutesChange: (Int) -> Unit,
 ) {
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val active = phase == Phase.ARMED || phase == Phase.PAUSED
 
+    var dragging by remember { mutableStateOf(false) }
+    var dialMinutes by remember { mutableFloatStateOf(armedMinutes.toFloat()) }
+
+    // 设置页滑块改了值就同步过来，但正在拖圆环的时候别打断
+    LaunchedEffect(armedMinutes) {
+        if (!dragging) dialMinutes = armedMinutes.toFloat()
+    }
+
+    val idleMinutes = if (dragging) dialMinutes else armedMinutes.toFloat()
+
     val target = when (phase) {
-        Phase.IDLE -> 1f
+        Phase.IDLE -> (idleMinutes / 60f).coerceIn(0f, 1f)
         Phase.DONE -> 0f
         else -> if (totalMs <= 0L) 1f else (remainingMs.toFloat() / totalMs).coerceIn(0f, 1f)
     }
@@ -104,13 +131,17 @@ fun HomeScreen(
     }
 
     val ringLabel = when (phase) {
-        Phase.IDLE -> formatClock(armedMinutes * 60_000L)
+        Phase.IDLE -> formatClock((idleMinutes * 60_000L).toLong())
         Phase.DONE -> "已记录"
         else -> formatClock(remainingMs)
     }
 
     val caption = when (phase) {
-        Phase.IDLE -> "$armedMinutes 分钟内没按音量键，就替你暂停"
+        Phase.IDLE -> if (dragging) {
+            "${idleMinutes.roundToInt()} 分钟 · 松手生效"
+        } else {
+            "转动圆环调时长 · 目前 $armedMinutes 分钟"
+        }
         Phase.ARMED -> "这段时间里按一下音量键，计时就重来"
         Phase.PAUSED -> "按音量键，把刚才的声音叫回来"
         Phase.DONE -> "音频一直停着，明早再看记录"
@@ -166,7 +197,61 @@ fun HomeScreen(
 
             Spacer(Modifier.height(28.dp))
 
-            Box(Modifier.size(268.dp), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier
+                    .size(268.dp)
+                    // 只在待机时接管手势：转圆环改时长，其余状态下圆环纯展示
+                    .pointerInput(phase) {
+                        if (phase != Phase.IDLE) return@pointerInput
+                        detectTapGestures { offset ->
+                            val cx = size.width / 2f
+                            val cy = size.height / 2f
+                            val dx = offset.x - cx
+                            val dy = offset.y - cy
+                            val dead = size.width * 0.15f
+                            if (dx * dx + dy * dy > dead * dead) {
+                                var angle = atan2(dx, -dy)
+                                if (angle < 0f) angle += 2f * PI.toFloat()
+                                val minutes = (angle / (2f * PI.toFloat()) * 60f)
+                                    .roundToInt().coerceIn(1, 60)
+                                dialMinutes = minutes.toFloat()
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onMinutesChange(minutes)
+                            }
+                        }
+                    }
+                    .pointerInput(phase) {
+                        if (phase != Phase.IDLE) return@pointerInput
+                        detectDragGestures(
+                            onDragStart = { dragging = true },
+                            onDragEnd = {
+                                dragging = false
+                                val value = dialMinutes.roundToInt().coerceIn(1, 60)
+                                if (value != armedMinutes) onMinutesChange(value)
+                            },
+                            onDragCancel = { dragging = false },
+                        ) { change, _ ->
+                            change.consume()
+                            val cx = size.width / 2f
+                            val cy = size.height / 2f
+                            val dx = change.position.x - cx
+                            val dy = change.position.y - cy
+                            // 太靠近圆心时角度会乱跳，留一圈死区
+                            val dead = size.width * 0.15f
+                            if (dx * dx + dy * dy > dead * dead) {
+                                var angle = atan2(dx, -dy)
+                                if (angle < 0f) angle += 2f * PI.toFloat()
+                                val minutes = (angle / (2f * PI.toFloat()) * 60f)
+                                    .roundToInt().coerceIn(1, 60)
+                                if (minutes != dialMinutes.roundToInt()) {
+                                    dialMinutes = minutes.toFloat()
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
+                            }
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
                 if (active) {
                     Box(
                         Modifier
@@ -196,6 +281,29 @@ fun HomeScreen(
                         size = arcSize,
                         style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
+
+                    // 待机时画刻度，暗示「这里可以转」
+                    if (phase == Phase.IDLE) {
+                        val tickOuter = size.width / 2f - stroke * 1.9f
+                        val tickInner = tickOuter - 6.dp.toPx()
+                        for (i in 0 until 12) {
+                            val rad = (-90f + i * 30f) * (PI.toFloat() / 180f)
+                            drawLine(
+                                color = if (i == 0) Accent.copy(alpha = 0.7f)
+                                else TextSecondary.copy(alpha = 0.3f),
+                                start = Offset(
+                                    center.x + cos(rad) * tickOuter,
+                                    center.y + sin(rad) * tickOuter,
+                                ),
+                                end = Offset(
+                                    center.x + cos(rad) * tickInner,
+                                    center.y + sin(rad) * tickInner,
+                                ),
+                                strokeWidth = 2.dp.toPx(),
+                                cap = StrokeCap.Round,
+                            )
+                        }
+                    }
 
                     val sweep = 360f * progress
                     if (sweep > 0.5f) {
